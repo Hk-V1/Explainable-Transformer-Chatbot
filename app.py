@@ -13,6 +13,13 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 warnings.filterwarnings("ignore")
 
+# =============================================================================
+# CONFIGURATION - EDIT THESE VALUES
+# =============================================================================
+GEMINI_API_KEY = "YOUR_API_KEY_HERE"  # Replace with your actual API key
+GEMINI_MODEL = "gemini-pro"  # Options: "gemini-pro", "gemini-pro-vision"
+# =============================================================================
+
 # Set up page config
 st.set_page_config(
     page_title="Explainable Transformer Chatbot",
@@ -296,78 +303,62 @@ def main():
     st.markdown("*Powered by Google Gemini API*")
     st.markdown("---")
     
+    # Check if API key is configured
+    if GEMINI_API_KEY == "YOUR_API_KEY_HERE":
+        st.error("🔑 Please configure your API key in the code!")
+        st.code('GEMINI_API_KEY = "your-actual-api-key-here"')
+        st.markdown("Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)")
+        return
+    
     # Initialize session state
     if "chatbot" not in st.session_state:
-        st.session_state.chatbot = None
+        with st.spinner(f"Initializing {GEMINI_MODEL}..."):
+            st.session_state.chatbot = GeminiExplainableChatbot(GEMINI_API_KEY, GEMINI_MODEL)
+            if st.session_state.chatbot.is_connected:
+                st.success(f"✅ Connected to {GEMINI_MODEL}!")
+            else:
+                st.error(f"❌ Failed to connect to {GEMINI_MODEL}")
+                return
+    
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
-    # Sidebar - API Configuration
+    # Sidebar - Generation Parameters
     with st.sidebar:
-        st.header("🔑 API Configuration")
-        
-        # API Key input
-        api_key = st.text_input(
-            "Google AI API Key:", 
-            type="password",
-            help="Get your API key from https://makersuite.google.com/app/apikey"
-        )
-        
-        if not api_key:
-            st.warning("Please enter your Google AI API key to continue.")
-            st.markdown("**How to get API key:**")
-            st.markdown("1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)")
-            st.markdown("2. Click 'Create API Key'")
-            st.markdown("3. Copy and paste the key above")
-        
-        # Model selection
-        model_options = ["gemini-pro", "gemini-pro-vision"]
-        selected_model = st.selectbox("Select Model", model_options)
-        
-        # Initialize chatbot
-        if api_key and (st.button("Connect to Gemini") or st.session_state.chatbot is None):
-            with st.spinner(f"Connecting to {selected_model}..."):
-                st.session_state.chatbot = GeminiExplainableChatbot(api_key, selected_model)
-                if st.session_state.chatbot.is_connected:
-                    st.success("✅ Connected to Gemini API!")
-                else:
-                    st.error("❌ Failed to connect to Gemini API")
+        st.header("🤖 Model Info")
+        st.info(f"**Model:** {GEMINI_MODEL}")
+        st.success("✅ Connected to Gemini API")
         
         st.markdown("---")
         
         # Generation parameters
-        if api_key:
-            st.header("⚙️ Generation Parameters")
-            temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1,
-                                   help="Higher = more creative, Lower = more focused")
-            max_tokens = st.slider("Max Tokens", 50, 500, 150, 25,
-                                  help="Maximum length of response")
-            show_variations = st.checkbox("Show Response Variations", value=True,
-                                        help="Generate multiple response variations for comparison")
-            
-            st.markdown("---")
-            
-            # Example prompts
-            st.header("💡 Example Prompts")
-            example_prompts = [
-                "Explain quantum computing in simple terms",
-                "Write a short story about AI and humans",
-                "What are the benefits of renewable energy?",
-                "How does machine learning work?",
-                "Describe the future of space exploration"
-            ]
-            
-            for prompt in example_prompts:
-                if st.button(f"'{prompt[:25]}...'", key=prompt):
-                    st.session_state.example_prompt = prompt
+        st.header("⚙️ Generation Parameters")
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1,
+                               help="Higher = more creative, Lower = more focused")
+        max_tokens = st.slider("Max Tokens", 50, 500, 150, 25,
+                              help="Maximum length of response")
+        show_variations = st.checkbox("Show Response Variations", value=True,
+                                    help="Generate multiple response variations for comparison")
+        
+        st.markdown("---")
+        
+        # Example prompts
+        st.header("💡 Example Prompts")
+        example_prompts = [
+            "Explain quantum computing in simple terms",
+            "Write a short story about AI and humans",
+            "What are the benefits of renewable energy?",
+            "How does machine learning work?",
+            "Describe the future of space exploration"
+        ]
+        
+        for prompt in example_prompts:
+            if st.button(f"'{prompt[:25]}...'", key=prompt):
+                st.session_state.example_prompt = prompt
     
     # Main content area
-    if not api_key:
-        st.info("👈 Please enter your Google AI API key in the sidebar to get started.")
-        return
-    
     if st.session_state.chatbot is None or not st.session_state.chatbot.is_connected:
-        st.warning("⚠️ Please connect to Gemini API first.")
+        st.warning("⚠️ Failed to initialize Gemini API. Please check your API key.")
         return
     
     # Chat interface
