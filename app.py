@@ -9,11 +9,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from transformers import (
-    AutoTokenizer, AutoModelForCausalLM, 
-    TrainingArguments, Trainer, 
-    TextDataset, DataCollatorForLanguageModeling
+    AutoTokenizer, AutoModelForCausalLM,
+    pipeline, set_seed
 )
-from datasets import Dataset
 import json
 import os
 from typing import Dict, List, Tuple, Optional
@@ -44,118 +42,83 @@ class ExplainableTransformerChatbot:
         self.model_name = model_name
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Load tokenizer and model
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, 
-            output_attentions=True,
-            output_hidden_states=True
+        # Initialize pipeline for simple generation
+        self.pipeline = pipeline(
+            'text-generation', 
+            model=model_name,
+            device=0 if torch.cuda.is_available() else -1,
+            return_full_text=True
         )
         
-        # Add padding token if it doesn't exist
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            
-        self.model.to(self.device)
-        self.model.eval()
-        
-    def fine_tune_model(self, dataset_text: str, output_dir: str = "./fine_tuned_model",
-                       num_epochs: int = 3, learning_rate: float = 5e-5) -> bool:
-        """
-        Fine-tune the model on custom dataset.
-        
-        Args:
-            dataset_text: Text data for fine-tuning
-            output_dir: Directory to save the fine-tuned model
-            num_epochs: Number of training epochs
-            learning_rate: Learning rate for training
-            
-        Returns:
-            bool: Success status
-        """
+        # Load tokenizer and model for detailed analysis
         try:
-            # Prepare dataset
-            lines = [line.strip() for line in dataset_text.split('\n') if line.strip()]
-            dataset = Dataset.from_dict({"text": lines})
-            
-            def tokenize_function(examples):
-                return self.tokenizer(
-                    examples["text"], 
-                    truncation=True, 
-                    padding=True, 
-                    max_length=512
-                )
-            
-            tokenized_dataset = dataset.map(tokenize_function, batched=True)
-            
-            # Data collator
-            data_collator = DataCollatorForLanguageModeling(
-                tokenizer=self.tokenizer,
-                mlm=False
-            )
-            
-            # Training arguments
-            training_args = TrainingArguments(
-                output_dir=output_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=num_epochs,
-                per_device_train_batch_size=4,
-                save_steps=10_000,
-                save_total_limit=2,
-                prediction_loss_only=True,
-                learning_rate=learning_rate,
-                warmup_steps=100,
-                logging_steps=100,
-            )
-            
-            # Trainer
-            trainer = Trainer(
-                model=self.model,
-                args=training_args,
-                data_collator=data_collator,
-                train_dataset=tokenized_dataset,
-            )
-            
-            # Train
-            trainer.train()
-            trainer.save_model()
-            self.tokenizer.save_pretrained(output_dir)
-            
-            return True
-            
-        except Exception as e:
-            st.error(f"Fine-tuning failed: {str(e)}")
-            return False
-    
-    def load_fine_tuned_model(self, model_path: str) -> bool:
-        """
-        Load a fine-tuned model.
-        
-        Args:
-            model_path: Path to the fine-tuned model
-            
-        Returns:
-            bool: Success status
-        """
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_path,
+                model_name, 
                 output_attentions=True,
                 output_hidden_states=True
             )
+            
+            # Add padding token if it doesn't exist
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
+                
             self.model.to(self.device)
             self.model.eval()
-            return True
+            self.detailed_model_available = True
+            
         except Exception as e:
-            st.error(f"Failed to load model: {str(e)}")
-            return False
+            st.warning(f"Detailed model analysis not available: {e}")
+            self.tokenizer = None
+            self.model = None
+            self.detailed_model_available = False
+    
+    def simple_generate(self, prompt: str, temperature: float = 0.7,
+                       top_k: int = 50, top_p: float = 0.95,
+                       max_length: int = 100, seed: int = 42) -> str:
+        """
+        Simple text generation using pipeline.
+        
+        Args:
+            prompt: Input prompt
+            temperature: Sampling temperature
+            top_k: Top-k sampling parameter
+            top_p: Top-p (nucleus) sampling parameter
+            max_length: Maximum generation length
+            seed: Random seed for reproducibility
+            
+        Returns:
+            Generated text
+        """
+        set_seed(seed)
+        
+        try:
+            # Configure generation parameters
+            generation_kwargs = {
+                'max_length': max_length,
+                'temperature': temperature,
+                'top_k': top_k,
+                'top_p': top_p,
+                'do_sample': True,
+                'num_return_sequences': 1,
+                'pad_token_id': self.pipeline.tokenizer.eos_token_id
+            }
+            
+            # Generate text
+            result = self.pipeline(prompt, **generation_kwargs)
+            generated_text = result[0]['generated_text']
+            
+            # Extract only the new part (response)
+            response = generated_text[len(prompt):].strip()
+            
+            return response
+            
+        except Exception as e:
+            return f"Error generating response: {str(e)}"
     
     def generate_response(self, prompt: str, temperature: float = 0.7,
                          top_k: int = 50, top_p: float = 0.95,
-                         max_length: int = 100) -> Dict:
+                         max_length: int = 100, seed: int = 42) -> Dict:
         """
         Generate response with detailed information for explainability.
         
@@ -165,90 +128,143 @@ class ExplainableTransformerChatbot:
             top_k: Top-k sampling parameter
             top_p: Top-p (nucleus) sampling parameter
             max_length: Maximum generation length
+            seed: Random seed for reproducibility
             
         Returns:
             Dict containing response and analysis data
         """
-        # Tokenize input
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-        input_length = input_ids.shape[1]
+        # First get simple response
+        response = self.simple_generate(prompt, temperature, top_k, top_p, max_length, seed)
         
-        # Generate with detailed outputs
-        with torch.no_grad():
-            outputs = self.model.generate(
-                input_ids,
-                max_length=max_length,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-                do_sample=True,
-                return_dict_in_generate=True,
-                output_attentions=True,
-                output_scores=True,
-                pad_token_id=self.tokenizer.eos_token_id
-            )
-        
-        # Extract generated sequence
-        generated_ids = outputs.sequences[0]
-        generated_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
-        response_text = generated_text[len(prompt):].strip()
-        
-        # Get tokens and their IDs
-        all_tokens = self.tokenizer.convert_ids_to_tokens(generated_ids)
-        all_token_ids = generated_ids.cpu().numpy().tolist()
-        
-        # Get attention weights (from last layer for simplicity)
-        attentions = outputs.attentions[-1]  # Last generation step
-        attention_weights = attentions[0].cpu().numpy()  # First batch item
-        
-        # Get token probabilities for generated tokens
-        token_probs = []
-        if outputs.scores:
-            for score in outputs.scores:
-                probs = F.softmax(score[0], dim=-1).cpu().numpy()
-                token_probs.append(probs)
-        
-        return {
-            "response": response_text,
-            "full_text": generated_text,
-            "tokens": all_tokens,
-            "token_ids": all_token_ids,
-            "input_length": input_length,
-            "attention_weights": attention_weights,
-            "token_probabilities": token_probs,
-            "generated_ids": generated_ids[input_length:].cpu().numpy()
+        result = {
+            "response": response,
+            "full_text": prompt + " " + response,
+            "tokens": [],
+            "token_ids": [],
+            "input_length": 0,
+            "attention_weights": None,
+            "token_probabilities": [],
+            "generated_ids": []
         }
+        
+        # If detailed model is available, get additional analysis
+        if self.detailed_model_available and self.tokenizer and self.model:
+            try:
+                # Tokenize full text
+                full_text = prompt + " " + response
+                input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
+                full_ids = self.tokenizer.encode(full_text, return_tensors="pt").to(self.device)
+                
+                # Get tokens and IDs
+                all_tokens = self.tokenizer.convert_ids_to_tokens(full_ids[0])
+                all_token_ids = full_ids[0].cpu().numpy().tolist()
+                input_length = input_ids.shape[1]
+                
+                # Get model outputs for attention analysis
+                with torch.no_grad():
+                    outputs = self.model(full_ids, output_attentions=True)
+                    
+                # Extract attention weights
+                attentions = outputs.attentions
+                if attentions:
+                    # Get last layer attention
+                    last_layer_attention = attentions[-1][0].cpu().numpy()
+                    result["attention_weights"] = last_layer_attention
+                
+                # Update result with detailed info
+                result.update({
+                    "tokens": all_tokens,
+                    "token_ids": all_token_ids,
+                    "input_length": input_length,
+                    "generated_ids": full_ids[0][input_length:].cpu().numpy()
+                })
+                
+            except Exception as e:
+                st.warning(f"Detailed analysis failed: {e}")
+        
+        return result
+    
+    def get_token_probabilities_simple(self, prompt: str, num_variations: int = 5) -> Dict:
+        """
+        Get multiple generation variations to show different possible continuations.
+        
+        Args:
+            prompt: Input prompt
+            num_variations: Number of different continuations to generate
+            
+        Returns:
+            Dict with variations and their relative frequencies
+        """
+        try:
+            # Generate multiple variations
+            results = self.pipeline(
+                prompt,
+                max_length=len(prompt.split()) + 10,
+                num_return_sequences=num_variations,
+                temperature=0.8,
+                do_sample=True,
+                pad_token_id=self.pipeline.tokenizer.eos_token_id
+            )
+            
+            # Extract responses
+            responses = []
+            for result in results:
+                response = result['generated_text'][len(prompt):].strip()
+                if response:
+                    responses.append(response)
+            
+            # Count frequencies of first few words
+            first_words = {}
+            for response in responses:
+                words = response.split()
+                if words:
+                    first_word = words[0]
+                    first_words[first_word] = first_words.get(first_word, 0) + 1
+            
+            return {
+                "variations": responses,
+                "first_word_counts": first_words
+            }
+            
+        except Exception as e:
+            return {"variations": [], "first_word_counts": {}}
     
     def visualize_attention(self, tokens: List[str], attention_weights: np.ndarray,
-                           layer_idx: int = 0, head_idx: int = 0) -> go.Figure:
+                           layer_idx: int = -1, head_idx: int = 0) -> go.Figure:
         """
         Create attention heatmap visualization.
         
         Args:
             tokens: List of tokens
             attention_weights: Attention weight matrix
-            layer_idx: Layer index to visualize
+            layer_idx: Layer index to visualize (-1 for last layer)
             head_idx: Attention head index to visualize
             
         Returns:
             Plotly figure object
         """
-        # Select specific head and layer
-        if len(attention_weights.shape) > 3:
-            attn = attention_weights[layer_idx, head_idx]
-        else:
-            attn = attention_weights[head_idx]
+        if attention_weights is None:
+            return go.Figure()
         
-        # Truncate if needed
-        max_len = min(len(tokens), attn.shape[0], attn.shape[1])
+        # Select specific head
+        if len(attention_weights.shape) >= 3:
+            attn = attention_weights[head_idx]
+        else:
+            attn = attention_weights
+        
+        # Truncate if needed for visualization
+        max_len = min(len(tokens), attn.shape[0], attn.shape[1], 50)
         attn = attn[:max_len, :max_len]
-        tokens = tokens[:max_len]
+        tokens_display = tokens[:max_len]
+        
+        # Truncate long tokens for display
+        tokens_display = [tok[:8] + "..." if len(tok) > 8 else tok for tok in tokens_display]
         
         # Create heatmap
         fig = go.Figure(data=go.Heatmap(
             z=attn,
-            x=tokens,
-            y=tokens,
+            x=tokens_display,
+            y=tokens_display,
             colorscale='Blues',
             text=np.round(attn, 3),
             texttemplate="%{text}",
@@ -257,72 +273,49 @@ class ExplainableTransformerChatbot:
         ))
         
         fig.update_layout(
-            title=f"Attention Weights - Layer {layer_idx}, Head {head_idx}",
+            title=f"Attention Weights - Head {head_idx}",
             xaxis_title="Keys (Attending To)",
             yaxis_title="Queries (Attending From)",
             width=600,
-            height=500
+            height=500,
+            xaxis={'side': 'bottom'},
+            yaxis={'side': 'left'}
         )
         
         return fig
     
-    def show_token_probs(self, token_probs: List[np.ndarray], 
-                        generated_tokens: List[str], 
-                        top_k: int = 10) -> go.Figure:
+    def show_generation_variations(self, variations_data: Dict) -> go.Figure:
         """
-        Visualize top-k token probabilities for each generation step.
+        Visualize generation variations and their frequencies.
         
         Args:
-            token_probs: List of probability distributions
-            generated_tokens: List of actually generated tokens
-            top_k: Number of top tokens to show
+            variations_data: Dictionary with variations and word counts
             
         Returns:
             Plotly figure object
         """
-        if not token_probs or not generated_tokens:
+        if not variations_data["first_word_counts"]:
             return go.Figure()
         
-        # Create subplot for each generation step
-        n_steps = min(len(token_probs), len(generated_tokens), 5)  # Limit to 5 steps
-        fig = make_subplots(
-            rows=1, cols=n_steps,
-            subplot_titles=[f"Step {i+1}: '{generated_tokens[i]}'" for i in range(n_steps)],
-            horizontal_spacing=0.02
-        )
+        words = list(variations_data["first_word_counts"].keys())
+        counts = list(variations_data["first_word_counts"].values())
         
-        colors = px.colors.qualitative.Set3
-        
-        for step in range(n_steps):
-            probs = token_probs[step]
-            
-            # Get top-k tokens
-            top_indices = np.argsort(probs)[-top_k:][::-1]
-            top_probs = probs[top_indices]
-            top_tokens = [self.tokenizer.decode([idx]) for idx in top_indices]
-            
-            # Highlight the actually selected token
-            bar_colors = ['red' if idx == self.tokenizer.encode(generated_tokens[step])[0] 
-                         else colors[i % len(colors)] for i, idx in enumerate(top_indices)]
-            
-            fig.add_trace(
-                go.Bar(
-                    x=top_tokens,
-                    y=top_probs,
-                    name=f"Step {step+1}",
-                    marker_color=bar_colors,
-                    showlegend=False
-                ),
-                row=1, col=step+1
+        fig = go.Figure(data=[
+            go.Bar(
+                x=words,
+                y=counts,
+                text=counts,
+                textposition='auto',
+                marker_color='lightblue'
             )
+        ])
         
         fig.update_layout(
-            title="Top-K Token Probabilities at Each Generation Step",
-            height=400,
-            showlegend=False
+            title="First Word Frequency in Generated Variations",
+            xaxis_title="First Word",
+            yaxis_title="Frequency",
+            height=400
         )
-        
-        fig.update_xaxes(tickangle=45)
         
         return fig
 
@@ -330,6 +323,7 @@ def main():
     """Main Streamlit application"""
     
     st.title("🤖 Explainable Transformer Chatbot")
+    st.markdown("*Understanding how language models generate text*")
     st.markdown("---")
     
     # Initialize session state
@@ -343,148 +337,236 @@ def main():
         st.header("🔧 Model Configuration")
         
         # Model selection
-        model_options = ["distilgpt2", "gpt2", "gpt2-medium", "microsoft/DialoGPT-small"]
+        model_options = [
+            "distilgpt2", 
+            "gpt2", 
+            "gpt2-medium",
+            "microsoft/DialoGPT-small",
+            "microsoft/DialoGPT-medium"
+        ]
         selected_model = st.selectbox("Select Model", model_options)
         
         # Initialize/Change model
         if st.button("Load Model") or st.session_state.chatbot is None:
             with st.spinner(f"Loading {selected_model}..."):
-                st.session_state.chatbot = ExplainableTransformerChatbot(selected_model)
-            st.success(f"✅ {selected_model} loaded successfully!")
+                try:
+                    st.session_state.chatbot = ExplainableTransformerChatbot(selected_model)
+                    st.success(f"✅ {selected_model} loaded successfully!")
+                except Exception as e:
+                    st.error(f"Failed to load model: {e}")
+                    st.session_state.chatbot = None
+        
+        if st.session_state.chatbot:
+            # Show model status
+            if st.session_state.chatbot.detailed_model_available:
+                st.success("🔬 Detailed analysis available")
+            else:
+                st.info("📝 Basic generation available")
         
         st.markdown("---")
         
         # Generation parameters
         st.header("⚙️ Generation Parameters")
-        temperature = st.slider("Temperature", 0.1, 2.0, 0.7, 0.1)
-        top_k = st.slider("Top-K", 1, 100, 50, 1)
-        top_p = st.slider("Top-P", 0.1, 1.0, 0.95, 0.05)
-        max_length = st.slider("Max Length", 20, 200, 100, 10)
+        temperature = st.slider("Temperature", 0.1, 2.0, 0.7, 0.1, 
+                               help="Higher = more creative, Lower = more focused")
+        top_k = st.slider("Top-K", 1, 100, 50, 1,
+                         help="Consider only top K tokens")
+        top_p = st.slider("Top-P", 0.1, 1.0, 0.95, 0.05,
+                         help="Nucleus sampling threshold")
+        max_length = st.slider("Max Length", 20, 200, 100, 10,
+                              help="Maximum tokens to generate")
+        seed = st.number_input("Random Seed", 0, 1000, 42,
+                              help="For reproducible results")
         
         st.markdown("---")
         
-        # Fine-tuning section
-        st.header("🎯 Fine-tuning")
-        uploaded_file = st.file_uploader("Upload training data (.txt)", type="txt")
+        # Example prompts
+        st.header("💡 Example Prompts")
+        example_prompts = [
+            "The future of artificial intelligence is",
+            "In a world where robots and humans coexist",
+            "The most important invention in history was",
+            "Climate change will affect our planet by",
+            "The secret to happiness is"
+        ]
         
-        if uploaded_file is not None:
-            training_data = str(uploaded_file.read(), "utf-8")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                epochs = st.number_input("Epochs", 1, 10, 3)
-            with col2:
-                lr = st.selectbox("Learning Rate", [1e-5, 5e-5, 1e-4, 5e-4], index=1)
-            
-            if st.button("Start Fine-tuning"):
-                if st.session_state.chatbot:
-                    with st.spinner("Fine-tuning model..."):
-                        success = st.session_state.chatbot.fine_tune_model(
-                            training_data, num_epochs=epochs, learning_rate=lr
-                        )
-                    if success:
-                        st.success("✅ Fine-tuning completed!")
-                    else:
-                        st.error("❌ Fine-tuning failed!")
+        for prompt in example_prompts:
+            if st.button(f"'{prompt[:30]}...'", key=prompt):
+                st.session_state.example_prompt = prompt
     
     # Main content area
     if st.session_state.chatbot is None:
-        st.warning("Please load a model from the sidebar first.")
+        st.warning("⚠️ Please load a model from the sidebar first.")
         return
     
     # Chat interface
-    col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([3, 2])
     
     with col1:
         st.header("💬 Chat Interface")
         
         # User input
-        user_input = st.text_area("Your message:", height=100, 
-                                 placeholder="Ask me anything...")
+        default_prompt = getattr(st.session_state, 'example_prompt', '')
+        user_input = st.text_area("Your prompt:", height=100, value=default_prompt,
+                                 placeholder="Enter your prompt here...")
         
-        if st.button("Generate Response", type="primary"):
-            if user_input.strip():
-                with st.spinner("Generating response..."):
-                    # Generate response
-                    result = st.session_state.chatbot.generate_response(
-                        user_input, temperature, top_k, top_p, max_length
-                    )
-                
-                # Display response
-                st.markdown("### 🤖 Chatbot Response:")
-                st.write(result["response"])
-                
-                # Store in chat history
-                st.session_state.chat_history.append({
-                    "user": user_input,
-                    "bot": result["response"],
-                    "analysis": result
-                })
-                
-                # Token Analysis
+        # Clear example prompt after use
+        if hasattr(st.session_state, 'example_prompt'):
+            delattr(st.session_state, 'example_prompt')
+        
+        col_gen, col_var = st.columns(2)
+        
+        with col_gen:
+            generate_response = st.button("🎯 Generate Response", type="primary")
+        
+        with col_var:
+            show_variations = st.button("🎲 Show Variations")
+        
+        if generate_response and user_input.strip():
+            with st.spinner("🤖 Generating response..."):
+                # Generate response
+                result = st.session_state.chatbot.generate_response(
+                    user_input, temperature, top_k, top_p, max_length, seed
+                )
+            
+            # Display response
+            st.markdown("### 🤖 Generated Response:")
+            st.success(result["response"])
+            
+            # Store in chat history
+            st.session_state.chat_history.append({
+                "user": user_input,
+                "bot": result["response"],
+                "analysis": result
+            })
+            
+            # Token Analysis (if available)
+            if result["tokens"]:
                 st.markdown("### 🔍 Token Analysis")
+                
+                # Create token dataframe
                 token_df = pd.DataFrame({
+                    "Position": range(len(result["tokens"])),
                     "Token": result["tokens"],
                     "Token ID": result["token_ids"],
                     "Type": ["Input" if i < result["input_length"] else "Generated" 
                             for i in range(len(result["tokens"]))]
                 })
-                st.dataframe(token_df, use_container_width=True)
                 
-                # Attention Visualization
+                # Color code the dataframe
+                def color_tokens(val):
+                    if val == "Input":
+                        return 'background-color: lightblue'
+                    else:
+                        return 'background-color: lightgreen'
+                
+                styled_df = token_df.style.applymap(color_tokens, subset=['Type'])
+                st.dataframe(styled_df, use_container_width=True)
+                
+                # Attention Visualization (if available)
                 if result["attention_weights"] is not None:
                     st.markdown("### 🎯 Attention Visualization")
                     
                     # Controls for attention visualization
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        layer_idx = st.selectbox("Layer", range(len(result["attention_weights"])))
-                    with col_b:
-                        head_idx = st.selectbox("Head", range(result["attention_weights"][layer_idx].shape[0]))
+                    col_head = st.columns(1)[0]
+                    with col_head:
+                        max_heads = result["attention_weights"].shape[0] if len(result["attention_weights"].shape) > 2 else 1
+                        head_idx = st.selectbox("Attention Head", range(max_heads))
                     
                     # Generate attention heatmap
                     attention_fig = st.session_state.chatbot.visualize_attention(
-                        result["tokens"], result["attention_weights"], layer_idx, head_idx
+                        result["tokens"], result["attention_weights"], head_idx=head_idx
                     )
                     st.plotly_chart(attention_fig, use_container_width=True)
-                
-                # Token Probabilities
-                if result["token_probabilities"]:
-                    st.markdown("### 📊 Token Probabilities")
-                    generated_tokens = [result["tokens"][i] for i in range(result["input_length"], 
-                                                                         min(result["input_length"] + 5, 
-                                                                             len(result["tokens"])))]
-                    prob_fig = st.session_state.chatbot.show_token_probs(
-                        result["token_probabilities"], generated_tokens
-                    )
-                    st.plotly_chart(prob_fig, use_container_width=True)
-            else:
-                st.warning("Please enter a message.")
+                    
+                    st.info("💡 **How to read:** Darker colors show stronger attention. "
+                           "Each row shows what tokens that position attends to.")
+        
+        if show_variations and user_input.strip():
+            with st.spinner("🎲 Generating variations..."):
+                variations = st.session_state.chatbot.get_token_probabilities_simple(user_input)
+            
+            st.markdown("### 🎲 Generation Variations")
+            st.info("Multiple possible continuations to show model uncertainty:")
+            
+            for i, variation in enumerate(variations["variations"], 1):
+                st.write(f"**{i}.** {variation}")
+            
+            # Show frequency chart
+            if variations["first_word_counts"]:
+                st.markdown("### 📊 First Word Frequency")
+                freq_fig = st.session_state.chatbot.show_generation_variations(variations)
+                st.plotly_chart(freq_fig, use_container_width=True)
     
     with col2:
         st.header("📚 Chat History")
         
-        # Display chat history
+        # Display recent chat history
         if st.session_state.chat_history:
             for i, chat in enumerate(reversed(st.session_state.chat_history[-5:])):
-                with st.expander(f"Chat {len(st.session_state.chat_history)-i}"):
-                    st.write(f"**User:** {chat['user']}")
-                    st.write(f"**Bot:** {chat['bot']}")
+                with st.expander(f"💬 Chat {len(st.session_state.chat_history)-i}", expanded=(i==0)):
+                    st.markdown(f"**🧑 You:** {chat['user']}")
+                    st.markdown(f"**🤖 Bot:** {chat['bot']}")
+                    
+                    # Show quick stats if available
+                    if chat['analysis']['tokens']:
+                        n_input = chat['analysis']['input_length']
+                        n_generated = len(chat['analysis']['tokens']) - n_input
+                        st.caption(f"📊 {n_input} input tokens → {n_generated} generated tokens")
         else:
-            st.info("No chat history yet. Start a conversation!")
+            st.info("💭 No chat history yet. Start a conversation!")
         
-        # Clear history button
-        if st.button("Clear History"):
-            st.session_state.chat_history = []
-            st.experimental_rerun()
+        # Control buttons
+        col_clear, col_download = st.columns(2)
+        with col_clear:
+            if st.button("🗑️ Clear History"):
+                st.session_state.chat_history = []
+                st.rerun()
+        
+        with col_download:
+            if st.session_state.chat_history:
+                # Prepare download data
+                chat_data = []
+                for chat in st.session_state.chat_history:
+                    chat_data.append({
+                        "user_input": chat["user"],
+                        "bot_response": chat["bot"]
+                    })
+                
+                st.download_button(
+                    "💾 Download",
+                    data=json.dumps(chat_data, indent=2),
+                    file_name="chat_history.json",
+                    mime="application/json"
+                )
     
-    # Footer
+    # Footer with information
     st.markdown("---")
-    st.markdown("""
-    **About this app:** This Explainable Transformer Chatbot provides insights into how transformer 
-    models generate text through attention visualizations and token probability analysis. 
-    You can also fine-tune models on custom datasets.
-    """)
+    with st.expander("ℹ️ About this Application"):
+        st.markdown("""
+        ### 🔬 Explainable Transformer Chatbot
+        
+        This application demonstrates how transformer language models work by providing:
+        
+        **🎯 Core Features:**
+        - **Text Generation**: State-of-the-art transformer models
+        - **Token Analysis**: See how text is broken into tokens
+        - **Attention Visualization**: Understand what the model focuses on
+        - **Generation Variations**: Explore different possible outputs
+        
+        **🧠 Understanding the Visualizations:**
+        - **Tokens**: Words/subwords the model processes
+        - **Attention**: What parts of the input the model considers when generating each word
+        - **Variations**: Different possible continuations showing model uncertainty
+        
+        **⚙️ Parameters:**
+        - **Temperature**: Controls creativity (higher = more random)
+        - **Top-K**: Only consider the K most likely next tokens
+        - **Top-P**: Consider tokens until cumulative probability reaches P
+        - **Max Length**: Maximum number of tokens to generate
+        
+        Built with Streamlit, Transformers, and Plotly for interactive AI explanation.
+        """)
 
 if __name__ == "__main__":
     main()
