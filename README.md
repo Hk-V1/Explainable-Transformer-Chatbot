@@ -1,25 +1,27 @@
 # Explainable Transformer Chatbot
 
-## 📌 Summary
-An interactive chatbot powered by a Transformer model, enhanced with **explainability features**.  
-It not only answers user queries but also shows tokenization, attention heatmaps, and token probability distributions.
+##  Demo
+Check out a working demo here: [Explainable Transformer Chatbot Streamlit App](https://explainable-transformer-chatbot.streamlit.app/)
 
-## 🎯 Objective
-To combine practical chatbot functionality with interpretability, demonstrating both the application and mechanisms of LLMs.
+##  Summary
+An interactive chatbot powered by a Transformer model, enhanced with **explainability features**. It not only answers user queries but also demonstrates its inner workings—like tokenization, attention heatmaps, and token probability distributions—via a sleek Streamlit UI.
 
-## 🛠️ Tech Stack
+##  Objective
+To merge practical chatbot functionality with interpretability, showcasing both the application and the underlying mechanisms of language models in an accessible way.
+
+##  Tech Stack
 - Python  
 - Hugging Face Transformers  
-- Streamlit (frontend UI)  
-- Matplotlib / Plotly (visualizations)  
 - PyTorch  
+- Streamlit (frontend UI)  
+- Matplotlib / Plotly for visualizations  
 
-## 🚀 Applications
-- AI-powered FAQ/chat systems with transparency  
-- Educational demo for understanding LLM behavior  
-- Research in explainable NLP  
+##  Applications
+- Transparent AI-powered chat systems (e.g., FAQs with insight)  
+- Educational tool for teaching how LLMs think  
+- Research and explainability dashboards for NLP  
 
-## 🔮 Future Use
-- Fine-tuning on domain-specific datasets  
-- Expanding support to larger LLMs  
-- Deploying as a cloud-based explainable chatbot service
+##  Future Use
+- Fine-tune on domain-specific datasets (e.g., legal, medical)  
+- Support for larger or more specialized LLMs  
+- Deploy as a live cloud service for explainable chatbot solutions
