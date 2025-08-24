@@ -1,7 +1,6 @@
 # Core ML and NLP libraries
 torch>=1.13.0
 transformers>=4.21.0
-datasets>=2.0.0
 tokenizers>=0.13.0
 
 # Streamlit and web interface
@@ -27,6 +26,9 @@ accelerate>=0.20.0
 # torch-audio>=0.13.0
 # torchvision>=0.14.0
 
+# Development and debugging (optional)
+# ipython>=8.0.0
+# jupyter>=1.0.0
 # Development and debugging (optional)
 # ipython>=8.0.0
 # jupyter>=1.0.0
