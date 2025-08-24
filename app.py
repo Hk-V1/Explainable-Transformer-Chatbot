@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore")
 # =============================================================================
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
-GEMINI_API_KEY = "YOUR_API_KEY_HERE"  # Replace with your actual API key
+GEMINI_API_KEY = "AIzaSyBKCu5YLW9R9WJcVz5QEaHFRXhvd2APbI4"  # Replace with your actual API key
 GEMINI_MODEL = "gemini-pro"  # Options: "gemini-pro", "gemini-pro-vision"
 # =============================================================================
 
