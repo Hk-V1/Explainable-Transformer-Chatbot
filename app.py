@@ -13,14 +13,9 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 warnings.filterwarnings("ignore")
 
-# =============================================================================
-# CONFIGURATION - EDIT THESE VALUES
-# =============================================================================
 GEMINI_API_KEY = "AIzaSyBKCu5YLW9R9WJcVz5QEaHFRXhvd2APbI4"  
 GEMINI_MODEL = "gemini-1.5-flash"  
-# =============================================================================
 
-# Set up page config
 st.set_page_config(
     page_title="Explainable Transformer Chatbot",
     page_icon="🤖",
@@ -29,10 +24,6 @@ st.set_page_config(
 )
 
 class GeminiExplainableChatbot:
-    """
-    A Gemini-powered chatbot with explainability features including
-    token analysis and response variations.
-    """
     
     def __init__(self, api_key: str, model_name: str = "gemini-pro"):
         """
@@ -45,11 +36,9 @@ class GeminiExplainableChatbot:
         self.api_key = api_key
         self.model_name = model_name
         
-        # Configure Gemini
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name)
         
-        # Test connection
         self.is_connected = self._test_connection()
     
     def _test_connection(self) -> bool:
@@ -63,30 +52,16 @@ class GeminiExplainableChatbot:
     
     def generate_response(self, prompt: str, temperature: float = 0.7,
                          max_tokens: int = 100, variations: int = 1) -> Dict:
-        """
-        Generate response using Gemini API with analysis.
-        
-        Args:
-            prompt: Input prompt
-            temperature: Sampling temperature (0.0-1.0)
-            max_tokens: Maximum tokens to generate
-            variations: Number of response variations
-            
-        Returns:
-            Dict containing response and analysis data
-        """
         if not self.is_connected:
             return {"error": "Not connected to Gemini API"}
         
         try:
-            # Configure generation
             generation_config = genai.types.GenerationConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
                 candidate_count=1,
             )
             
-            # Generate primary response
             response = self.model.generate_content(
                 prompt,
                 generation_config=generation_config
@@ -94,9 +69,8 @@ class GeminiExplainableChatbot:
             
             main_response = response.text if response.text else "No response generated"
             
-            # Generate variations for analysis
             variations_list = []
-            for i in range(min(variations, 3)):  # Limit to 3 variations
+            for i in range(min(variations, 3)): 
                 try:
                     var_config = genai.types.GenerationConfig(
                         temperature=min(temperature + 0.2 * i, 1.0),
@@ -115,10 +89,8 @@ class GeminiExplainableChatbot:
                 except Exception:
                     continue
             
-            # Analyze tokens (simple word-level analysis)
             tokens = self._tokenize_simple(main_response)
             
-            # Analyze response characteristics
             analysis = self._analyze_response(main_response, prompt)
             
             return {
@@ -135,16 +107,12 @@ class GeminiExplainableChatbot:
             return {"error": f"Generation failed: {str(e)}"}
     
     def _tokenize_simple(self, text: str) -> List[str]:
-        """Simple tokenization for analysis."""
-        # Basic word tokenization with punctuation handling
         tokens = re.findall(r'\w+|[^\w\s]', text)
         return tokens
     
     def _analyze_response(self, response: str, prompt: str) -> Dict:
-        """Analyze response characteristics."""
         words = response.split()
         
-        # Basic metrics
         analysis = {
             "word_count": len(words),
             "char_count": len(response),
@@ -154,7 +122,6 @@ class GeminiExplainableChatbot:
             "exclamation_count": response.count('!'),
         }
         
-        # Sentiment analysis (simple)
         positive_words = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'love', 'best']
         negative_words = ['bad', 'terrible', 'awful', 'hate', 'worst', 'horrible', 'sad', 'angry']
         
@@ -171,7 +138,6 @@ class GeminiExplainableChatbot:
         return analysis
     
     def get_detailed_analysis(self, prompt: str, response: str) -> Dict:
-        """Get detailed analysis using Gemini's reasoning capabilities."""
         analysis_prompt = f"""
         Analyze the following conversation and provide insights:
         
@@ -195,16 +161,13 @@ class GeminiExplainableChatbot:
             return {"detailed_analysis": f"Analysis failed: {str(e)}"}
 
 def create_token_visualization(tokens: List[str]) -> go.Figure:
-    """Create a visualization of tokens."""
     if not tokens:
         return go.Figure()
     
-    # Token length analysis
     token_lengths = [len(token) for token in tokens]
     
     fig = go.Figure()
     
-    # Add bar chart of token lengths
     fig.add_trace(go.Bar(
         x=list(range(len(tokens))),
         y=token_lengths,
@@ -224,7 +187,6 @@ def create_token_visualization(tokens: List[str]) -> go.Figure:
     return fig
 
 def create_response_metrics_chart(analysis: Dict) -> go.Figure:
-    """Create visualization of response metrics."""
     metrics = ['word_count', 'sentence_count', 'question_count', 'exclamation_count']
     values = [analysis.get(metric, 0) for metric in metrics]
     labels = ['Words', 'Sentences', 'Questions', 'Exclamations']
@@ -249,11 +211,9 @@ def create_response_metrics_chart(analysis: Dict) -> go.Figure:
     return fig
 
 def create_comparison_chart(responses: List[str]) -> go.Figure:
-    """Create comparison chart for response variations."""
     if not responses or len(responses) < 2:
         return go.Figure()
     
-    # Analyze each response
     metrics = []
     for i, response in enumerate(responses):
         words = response.split()
@@ -268,7 +228,6 @@ def create_comparison_chart(responses: List[str]) -> go.Figure:
     
     fig = go.Figure()
     
-    # Add traces for each metric
     fig.add_trace(go.Scatter(
         x=df['Response'],
         y=df['Word Count'],
@@ -303,14 +262,12 @@ def main():
     st.markdown("*Powered by Google Gemini API*")
     st.markdown("---")
     
-    # Check if API key is configured
     if GEMINI_API_KEY == "YOUR_API_KEY_HERE":
         st.error("🔑 Please configure your API key in the code!")
         st.code('GEMINI_API_KEY = "your-actual-api-key-here"')
         st.markdown("Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)")
         return
     
-    # Initialize session state
     if "chatbot" not in st.session_state:
         with st.spinner(f"Initializing {GEMINI_MODEL}..."):
             st.session_state.chatbot = GeminiExplainableChatbot(GEMINI_API_KEY, GEMINI_MODEL)
@@ -323,7 +280,6 @@ def main():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
-    # Sidebar - Generation Parameters
     with st.sidebar:
         st.header("🤖 Model Info")
         st.info(f"**Model:** {GEMINI_MODEL}")
@@ -331,7 +287,6 @@ def main():
         
         st.markdown("---")
         
-        # Generation parameters
         st.header("⚙️ Generation Parameters")
         temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1,
                                help="Higher = more creative, Lower = more focused")
@@ -342,7 +297,6 @@ def main():
         
         st.markdown("---")
         
-        # Example prompts
         st.header("💡 Example Prompts")
         example_prompts = [
             "Explain quantum computing in simple terms",
@@ -356,23 +310,19 @@ def main():
             if st.button(f"'{prompt[:25]}...'", key=prompt):
                 st.session_state.example_prompt = prompt
     
-    # Main content area
     if st.session_state.chatbot is None or not st.session_state.chatbot.is_connected:
         st.warning("⚠️ Failed to initialize Gemini API. Please check your API key.")
         return
     
-    # Chat interface
     col1, col2 = st.columns([3, 2])
     
     with col1:
         st.header("💬 Chat Interface")
         
-        # User input
         default_prompt = getattr(st.session_state, 'example_prompt', '')
         user_input = st.text_area("Your prompt:", height=100, value=default_prompt,
                                  placeholder="Ask me anything...")
         
-        # Clear example prompt after use
         if hasattr(st.session_state, 'example_prompt'):
             delattr(st.session_state, 'example_prompt')
         
@@ -395,24 +345,20 @@ def main():
             if "error" in result:
                 st.error(result["error"])
             else:
-                # Display main response
                 st.markdown("### 🤖 Generated Response:")
                 st.success(result["response"])
                 
-                # Store in chat history
                 st.session_state.chat_history.append({
                     "user": user_input,
                     "bot": result["response"],
                     "analysis": result
                 })
                 
-                # Response Analysis
                 st.markdown("### 📊 Response Analysis")
                 
                 col_metrics, col_tokens = st.columns(2)
                 
                 with col_metrics:
-                    # Display key metrics
                     analysis = result.get("analysis", {})
                     st.metric("Words Generated", analysis.get("word_count", 0))
                     st.metric("Characters", analysis.get("char_count", 0))
@@ -423,11 +369,9 @@ def main():
                     st.metric("Avg Word Length", f"{analysis.get('avg_word_length', 0):.1f}")
                     st.metric("Sentences", analysis.get("sentence_count", 0))
                 
-                # Token Visualization
                 if result.get("tokens"):
                     st.markdown("### 🔤 Token Analysis")
                     
-                    # Show tokens as tags
                     st.markdown("**Generated Tokens:**")
                     tokens_html = " ".join([f'<span style="background-color: lightblue; padding: 2px 6px; margin: 2px; border-radius: 3px; display: inline-block;">{token}</span>' for token in result["tokens"][:20]])
                     st.markdown(tokens_html, unsafe_allow_html=True)
@@ -435,17 +379,14 @@ def main():
                     if len(result["tokens"]) > 20:
                         st.caption(f"... and {len(result['tokens']) - 20} more tokens")
                     
-                    # Token length visualization
                     token_fig = create_token_visualization(result["tokens"][:30])
                     st.plotly_chart(token_fig, use_container_width=True)
                 
-                # Response Characteristics Chart
                 if analysis:
                     st.markdown("### 📈 Response Characteristics")
                     metrics_fig = create_response_metrics_chart(analysis)
                     st.plotly_chart(metrics_fig, use_container_width=True)
                 
-                # Variations Comparison
                 if result.get("variations") and show_variations:
                     st.markdown("### 🎲 Response Variations")
                     
@@ -457,7 +398,6 @@ def main():
                             st.write(variation)
                             st.markdown("---")
                         
-                        # Comparison chart
                         if len(all_responses) > 1:
                             comparison_fig = create_comparison_chart(all_responses)
                             st.plotly_chart(comparison_fig, use_container_width=True)
@@ -482,14 +422,12 @@ def main():
     with col2:
         st.header("📚 Chat History")
         
-        # Display recent chat history
         if st.session_state.chat_history:
             for i, chat in enumerate(reversed(st.session_state.chat_history[-5:])):
                 with st.expander(f"💬 Chat {len(st.session_state.chat_history)-i}", expanded=(i==0)):
                     st.markdown(f"**🧑 You:** {chat['user']}")
                     st.markdown(f"**🤖 Bot:** {chat['bot']}")
                     
-                    # Show quick stats
                     if 'analysis' in chat and 'analysis' in chat['analysis']:
                         analysis = chat['analysis']['analysis']
                         st.caption(f"📊 {analysis.get('word_count', 0)} words, "
@@ -497,7 +435,6 @@ def main():
         else:
             st.info("💭 No chat history yet. Start a conversation!")
         
-        # Control buttons
         col_clear, col_download = st.columns(2)
         with col_clear:
             if st.button("🗑️ Clear History"):
@@ -511,7 +448,7 @@ def main():
                     chat_data.append({
                         "user_input": chat["user"],
                         "bot_response": chat["bot"],
-                        "timestamp": "now"  # You can add proper timestamps
+                        "timestamp": "now" 
                     })
                 
                 st.download_button(
@@ -521,7 +458,6 @@ def main():
                     mime="application/json"
                 )
     
-    # Footer with information
     st.markdown("---")
     with st.expander("ℹ️ About this Application"):
         st.markdown("""
